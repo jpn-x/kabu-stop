@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ストップ高安 寄り付きギャップ分析</title>
+<link rel="icon" href="favicon.png" type="image/png">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+  body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 14px;
+    background: #f0f2f5;
+    color: #222;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ===== ヘッダー ===== */
+  header {
+    flex-shrink: 0;
+    background: #1a1a2e;
+    color: #fff;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0;
+  }
+  .header-title h1  { font-size: 18px; font-weight: 700; }
+  .header-title .sub { font-size: 12px; color: #aab; margin-top: 2px; }
+
+  /* ===== 月タブ ===== */
+  .month-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    justify-content: flex-start;
+    margin-left: 2em; /* タイトルから全角2文字分 */
+  }
+  .month-tab {
+    background: rgba(255,255,255,0.1);
+    color: #ccd;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 14px;
+    padding: 4px 11px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .month-tab:hover   { background: rgba(255,255,255,0.22); color: #fff; }
+  .month-tab.active  { background: #fff; color: #1a1a2e; font-weight: 700; border-color: #fff; }
+  .month-tab.no-data { opacity: 0.35; cursor: default; }
+  .month-tab.no-data:hover { background: rgba(255,255,255,0.1); color: #ccd; }
+
+  /* ===== コントロール＋スタッツ ===== */
+  #stickyTop { flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,.15); z-index: 10; }
+
+  .controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 9px 16px;
+    background: #fff;
+    border-bottom: 1px solid #dde;
+    align-items: center;
+  }
+  .controls label { font-size: 13px; color: #555; margin-right: 4px; }
+  select, input[type="text"], input[type="date"] {
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  .filter-group { display: flex; align-items: center; gap: 4px; }
+
+  .stats {
+    display: flex;
+    gap: 10px;
+    padding: 8px 16px;
+    background: #fff;
+    border-bottom: 1px solid #dde;
+    flex-wrap: wrap;
+  }
+  .stat-card {
+    background: #f8f9fc;
+    border: 1px solid #e0e4ef;
+    border-radius: 6px;
+    padding: 5px 14px;
+    text-align: center;
+    min-width: 96px;
+  }
+  .stat-card .val { font-size: 20px; font-weight: 700; }
+  .stat-card .lbl { font-size: 11px; color: #777; }
+  .pos { color: #d32f2f; }
+  .neg { color: #1565c0; }
+
+  /* ===== フィルターボタン（stat-cardと同形状） ===== */
+  .stat-btn {
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    min-width: 72px;
+  }
+  .stat-btn:hover { background: #dde4f5; border-color: #a0b0d8; }
+  .stat-btn:active { transform: scale(0.97); }
+  .stat-btn.btn-on-high {
+    background: #fde8e8;
+    border-color: #e57373;
+  }
+  .stat-btn.btn-on-high .val { color: #c62828; }
+  .stat-btn.btn-on-low {
+    background: #e3f0ff;
+    border-color: #64b5f6;
+  }
+  .stat-btn.btn-on-low .val { color: #1565c0; }
+  /* ギャップフィルターボタンのアクティブ状態 */
+  .stat-btn.btn-on {
+    background: #e8f0fe;
+    border-color: #5584dc;
+    box-shadow: inset 0 0 0 1px #5584dc;
+  }
+
+  /* ===== テーブルエリア ===== */
+  .table-wrap {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+    padding: 0; /* 上の隙間ゼロ */
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    background: #fff;
+  }
+
+  /* th 個別sticky（border-collapse:collapse との競合を回避） */
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: #1a1a2e;
+    color: #fff;
+    padding: 8px 7px;
+    text-align: left;
+    font-size: 12px;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+  }
+  thead th:hover { background: #2a2a4e; }
+  thead th.sorted-asc::after  { content: ' ▲'; font-size: 11px; }
+  thead th.sorted-desc::after { content: ' ▼'; font-size: 11px; }
+
+  tbody tr.row-odd  { background: #ffffff; }
+  tbody tr.row-even { background: #e4eaf8; }
+  tbody tr.row-odd:hover  { background: #d6dff5; }
+  tbody tr.row-even:hover { background: #c8d4f0; }
+  tbody tr.row-low-odd  { background: #fff0f5; }
+  tbody tr.row-low-even { background: #ffe4e1; }
+  tbody tr.row-low-odd:hover  { background: #ffd6e0; }
+  tbody tr.row-low-even:hover { background: #ffc8cc; }
+  td { padding: 6px 7px; border-bottom: 1px solid #d8deee; white-space: nowrap; font-size: 13px; }
+
+  tr.date-sep td {
+    background: #2e3a6e;
+    color: #e8ecff;
+    font-weight: 700;
+    font-size: 13px;
+    padding: 5px 12px;
+    letter-spacing: 0.05em;
+    border-top: 3px solid #1a1a2e;
+    border-bottom: 2px solid #4a5aaa;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .badge-high   { background: #fde8e8; color: #c62828; }
+  .badge-low    { background: #e3f0ff; color: #1565c0; }
+  .badge-yorazu { background: #fff3e0; color: #e65100; }
+
+  /* ===== Y/X ソーシャルリンクボタン ===== */
+  .sns-wrap { display: inline-flex; gap: 3px; margin-right: 5px; vertical-align: middle; }
+  .btn-y, .btn-x, .btn-k {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    text-decoration: none;
+    color: #fff;
+    line-height: 1;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .btn-y:hover, .btn-x:hover, .btn-k:hover { opacity: 0.75; transform: scale(1.1); }
+  .btn-y { background: #ff6600; }                        /* Yahoo オレンジ */
+  .btn-x { background: #000; letter-spacing: -0.5px; }  /* X ブラック */
+  .btn-k { background: #cc1100; font-style: italic; }   /* 株探 レッド */
+
+  .gap-pos  { color: #c62828; font-weight: 700; }
+  .gap-neg  { color: #1565c0; font-weight: 700; }
+  .gap-zero { color: #555;    font-weight: 700; }
+
+  /* ===== 列ラベル＋数値 ===== */
+  .lbl {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    vertical-align: middle;
+    flex-shrink: 0;
+  }
+  .lbl-prev  { color: #fff; background: #333; }
+  .lbl-yori  { color: #fff; background: #228b22; }
+  .lbl-high  { color: #fff; background: #c62828; }
+  .lbl-low   { color: #fff; background: #1565c0; }
+  .lbl-close { color: #fff; background: #6d4c41; }
+  .lbl-vol   { color: #fff; background: #6a1b9a; }
+
+  .num-wrap      { display: flex; align-items: center; justify-content: flex-end; }
+  .num-wrap .nv  { text-align: right; font-weight: 700; }
+  .num-wrap .nwsp{ flex-shrink: 0; width: 0.4em; } /* 半角スペース相当 */
+  .num-wrap .lbl { flex-shrink: 0; width: 26px; text-align: center; }
+
+  .pending      { color: #aaa; font-style: italic; font-size: 11px; white-space: nowrap; }
+  .pending-wrap { text-align: right; }
+
+  /* ===== 理由テキスト ===== */
+  .reason-text {
+    font-size: 11px;
+    color: #555;
+    margin-top: 2px;
+    white-space: normal;
+    line-height: 1.3;
+    max-width: 260px;
+  }
+
+  /* ===== 連続ストップバッジ ===== */
+  .streak-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 8px;
+    margin-left: 4px;
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .streak-high {
+    background: #fde8e8;
+    color: #c62828;
+    border: 1px solid #e57373;
+  }
+  .streak-low {
+    background: #e3f0ff;
+    color: #1565c0;
+    border: 1px solid #64b5f6;
+  }
+
+  .loading { text-align: center; padding: 40px; color: #888; font-size: 16px; }
+  .error   { text-align: center; padding: 40px; color: #c00; }
+
+  /* ===== ページネーション ===== */
+  .pagination {
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #fff;
+    border-top: 1px solid #eef;
+  }
+  .pagination button {
+    border: 1px solid #ccc;
+    background: #fff;
+    border-radius: 4px;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .pagination button:hover    { background: #eef; }
+  .pagination button:disabled { opacity: .4; cursor: default; }
+  .pagination .page-info { font-size: 13px; color: #666; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-title">
+    <h1>ストップ高安 寄り付きギャップ分析</h1>
+    <div class="sub">前営業日ストップ高安銘柄 → 翌営業日始値のギャップ一覧</div>
+  </div>
+  <div class="month-tabs" id="monthTabs"></div>
+</header>
+
+<div id="stickyTop">
+  <div class="controls">
+    <div class="filter-group">
+      <label>区分</label>
+      <select id="filterType">
+        <option value="">すべて</option>
+        <option value="stop_high">ストップ高</option>
+        <option value="stop_low">ストップ安</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>市場</label>
+      <select id="filterMarket"><option value="">すべて</option></select>
+    </div>
+    <div class="filter-group">
+      <label>ストップ日</label>
+      <input type="date" id="filterDateFrom">
+    </div>
+    <div class="filter-group">
+      <label>～</label>
+      <input type="date" id="filterDateTo">
+    </div>
+    <div class="filter-group">
+      <label>銘柄コード</label>
+      <input type="text" id="filterCode" placeholder="例: 9984" style="width:90px">
+    </div>
+    <div class="filter-group">
+      <label>表示件数</label>
+      <select id="pageSize">
+        <option value="50">50</option>
+        <option value="100">100</option>
+        <option value="200" selected>200</option>
+        <option value="9999">全件</option>
+      </select>
+    </div>
+  </div>
+  <div class="stats" id="statsBar"></div>
+</div>
+
+<div class="table-wrap">
+  <div class="loading" id="loading">データ読み込み中...</div>
+  <table id="mainTable" style="display:none">
+    <thead>
+      <tr>
+        <th data-col="stop_date">ストップ日</th>
+        <th data-col="next_date">翌営業日</th>
+        <th data-col="code">コード</th>
+        <th data-col="name">銘柄名</th>
+        <th data-col="market">市場</th>
+        <th data-col="stop_type">区分</th>
+        <th data-col="prev_close">前営業日終値</th>
+        <th data-col="next_open">翌営業日始値</th>
+        <th data-col="gap_yen">ギャップ(円)</th>
+        <th data-col="gap_pct">ギャップ(%)</th>
+        <th data-col="next_high">当日高値</th>
+        <th data-col="next_low">当日安値</th>
+        <th data-col="next_close">当日終値</th>
+        <th data-col="range_yen">値幅(円)</th>
+        <th data-col="range_pct">値幅(%)</th>
+        <th data-col="volume">出来高</th>
+        <th data-col="yorazu">寄らず</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+</div>
+
+<div class="pagination" id="pagination" style="display:none">
+  <button id="btnFirst" onclick="goPage(1)">«</button>
+  <button id="btnPrev"  onclick="goPage(currentPage-1)">‹</button>
+  <span class="page-info" id="pageInfo"></span>
+  <button id="btnNext"  onclick="goPage(currentPage+1)">›</button>
+  <button id="btnLast"  onclick="goPage(totalPages)">»</button>
+</div>
+
+<script>
+const CSV_URL       = "data/gap_data.csv";
+const STOPSTOCK_URL = "https://raw.githubusercontent.com/jpn-x/kabu-stop/main/data/stock_data.json";
+let allRows     = [];
+let filtered    = [];
+let currentPage = 1;
+let totalPages  = 1;
+let sortCol     = "stop_date";
+let sortAsc     = false;
+let currentMonth = ""; // "2026-04" など。空=全て
+let gapFilter    = ""; // "" | "up" | "down" | "zero" | "yorazu"
+
+/* ===== CSV読み込み ===== */
+async function loadCSV() {
+  try {
+    const resp = await fetch(CSV_URL + "?t=" + Date.now());
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    return parseCSV(await resp.text());
+  } catch (e) {
+    document.getElementById("loading").innerHTML =
+      `<div class="error">データの読み込みに失敗しました。<br>${e.message}</div>`;
+    return [];
+  }
+}
+
+/* ===== 連続ストップ日数マップを構築 ===== */
+// key: "code_stop_type_stop_date" → 連続日数（1始まり）
+// CSV確定行のみ使用。実際のtrading日セットを基準にするので祝日を自動考慮。
+let streakMap = {};
+function buildStreaks(rows) {
+  // CSV確定行のみ（pending除外）
+  const csvRows = rows.filter(r => !r._pending);
+
+  // 全CSV行から「実際の取引日セット」を構築（日付昇順）
+  const tradingDays = [...new Set(csvRows.map(r => r.stop_date))].sort();
+  // 各日付 → 次の取引日 のマップ
+  const nextTradingDay = {};
+  for (let i = 0; i + 1 < tradingDays.length; i++) {
+    nextTradingDay[tradingDays[i]] = tradingDays[i + 1];
+  }
+
+  // 銘柄×方向ごとに stop_date を集める
+  const groups = {};
+  for (const r of csvRows) {
+    if (!r.stop_date || !r.code || !r.stop_type) continue;
+    const key = `${r.code}_${r.stop_type}`;
+    if (!groups[key]) groups[key] = new Set();
+    groups[key].add(r.stop_date);
+  }
+
+  const result = {};
+  for (const [key, dateSet] of Object.entries(groups)) {
+    const sorted = [...dateSet].sort();
+    for (let i = 0; i < sorted.length; i++) {
+      let streak = 1;
+      if (i > 0) {
+        // 前日の「次の取引日」が現在日と一致すれば連続
+        if (nextTradingDay[sorted[i - 1]] === sorted[i]) {
+          streak = (result[`${key}_${sorted[i - 1]}`] || 1) + 1;
+        }
+      }
+      result[`${key}_${sorted[i]}`] = streak;
+    }
+  }
+
+  // pending行にも直前CSV日のstreakを引き継ぐ
+  // （最後のCSV stop_date の翌取引日が pending の stop_date と一致する場合）
+  const pendingRows = rows.filter(r => r._pending);
+  for (const r of pendingRows) {
+    if (!r.stop_date || !r.code || !r.stop_type) continue;
+    const key = `${r.code}_${r.stop_type}`;
+    const csvKey = key; // same key as CSV groups
+    // 直前のCSV stop_date を探す
+    const csvDates = (groups[csvKey] ? [...groups[csvKey]].sort() : []);
+    if (csvDates.length > 0) {
+      const lastCsvDate = csvDates[csvDates.length - 1];
+      // nextWeekday ベースで1日先が pending の stop_date なら連続とみなす
+      if (nextWeekday(lastCsvDate) === r.stop_date) {
+        const prevStreak = result[`${key}_${lastCsvDate}`] || 1;
+        result[`${key}_${r.stop_date}`] = prevStreak + 1;
+      }
+    }
+  }
+
+  return result;
+}
+
+/* ===== 日本の祝日セット（2026〜2027）===== */
+const JP_HOLIDAYS = new Set([
+  "2026-01-01","2026-01-12","2026-02-11","2026-02-23","2026-03-20",
+  "2026-04-29","2026-05-03","2026-05-04","2026-05-05","2026-05-06",
+  "2026-07-20","2026-08-11","2026-09-21","2026-09-22","2026-09-23",
+  "2026-10-12","2026-11-03","2026-11-23",
+  "2027-01-01","2027-01-11","2027-02-11","2027-02-23","2027-03-21",
+  "2027-03-22","2027-04-29","2027-05-03","2027-05-04","2027-05-05",
+  "2027-07-19","2027-08-11","2027-09-20","2027-09-23","2027-10-11",
+  "2027-11-03","2027-11-23",
+]);
+
+/* ===== 日本の取引日か判定 ===== */
+function isJPTradingDay(dateStr) {
+  const d = new Date(dateStr + "T09:00:00+09:00");
+  const dow = d.getDay();
+  if (dow === 0 || dow === 6) return false; // 土日
+  return !JP_HOLIDAYS.has(dateStr);
+}
+
+/* ===== 翌取引日を返す（土日＋祝日スキップ） ===== */
+function nextWeekday(dateStr) {
+  const d = new Date(dateStr + "T09:00:00+09:00");
+  do {
+    d.setDate(d.getDate() + 1);
+    const s = d.toISOString().slice(0, 10);
+    if (d.getDay() !== 0 && d.getDay() !== 6 && !JP_HOLIDAYS.has(s)) break;
+  } while (true);
+  return d.toISOString().slice(0, 10);
+}
+
+/* ===== stopstock から未取得銘柄を取得して pending 行として返す ===== */
+async function loadStopstock(existingKeys) {
+  try {
+    const resp = await fetch(STOPSTOCK_URL + "?t=" + Date.now());
+    if (!resp.ok) return [];
+    const data = await resp.json();
+
+    // code+stop_type ごとに最新の stop_date だけ残す
+    // （祝日連続などで同じ銘柄が複数日付で重複登録されるケースを除去）
+    const latest = {}; // "code_stopType" → {stopDate, nextDate, stock, stopType}
+
+    for (const days of Object.values(data)) {
+      for (const dayData of days) {
+        const stopDate = dayData.date;
+        // 祝日・休場日のデータはスキップ（同一銘柄が複数日付で重複掲載されるため）
+        if (!isJPTradingDay(stopDate)) continue;
+        const nextDate = nextWeekday(stopDate);
+        for (const stopType of ["stop_high", "stop_low"]) {
+          for (const stock of (dayData[stopType] || [])) {
+            if (existingKeys.has(`${stopDate}_${stock.code}_${stopType}`)) continue;
+            const k = `${stock.code}_${stopType}`;
+            if (!latest[k] || stopDate > latest[k].stopDate) {
+              latest[k] = { stopDate, nextDate, stock, stopType };
+            }
+          }
+        }
+      }
+    }
+
+    const pending = Object.values(latest).map(({ stopDate, nextDate, stock, stopType }) => ({
+      stop_date:  stopDate,
+      next_date:  nextDate,
+      code:       stock.code,
+      name:       stock.name,
+      market:     stock.market,
+      stop_type:  stopType,
+      prev_close: stock.price.replace(/,/g, ""),
+      next_open: "", gap_yen: "", gap_pct: "",
+      next_high: "", next_low: "",
+      next_close: "", range_yen: "", range_pct: "",
+      volume: "", yorazu: "",
+      _pending: true,
+    }));
+
+    return pending;
+  } catch(e) {
+    console.warn("stopstock fetch failed:", e);
+    return [];
+  }
+}
+function parseCSV(text) {
+  const lines = text.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(",").map(h => h.trim().replace(/^\uFEFF/, ""));
+  return lines.slice(1).map(line => {
+    const vals = line.split(",");
+    const obj  = {};
+    headers.forEach((h, i) => obj[h] = (vals[i] || "").trim());
+    return obj;
+  });
+}
+
+/* ===== 月タブ ===== */
+function buildMonthRange() {
+  // データの最古月〜今年12月
+  if (!allRows.length) return [];
+  const firstStr = allRows.map(r => r.stop_date).sort()[0].slice(0, 7); // "2026-04"
+  const nowJST   = new Date(Date.now() + 9 * 3600000);
+  const endStr   = `${nowJST.getFullYear()}-12`;
+
+  const range = [];
+  let cur = firstStr;
+  while (cur <= endStr) {
+    range.push(cur);
+    const [y, m] = cur.split("-").map(Number);
+    cur = m === 12
+      ? `${y + 1}-01`
+      : `${y}-${String(m + 1).padStart(2, "0")}`;
+  }
+  return range;
+}
+
+function renderMonthTabs() {
+  const dataMonths = new Set(allRows.map(r => r.stop_date.slice(0, 7)));
+  const range      = buildMonthRange();
+  const container  = document.getElementById("monthTabs");
+
+  const makeLabel = ym => {
+    const [y, m] = ym.split("-");
+    return `${y}/${parseInt(m)}月`;
+  };
+
+  const allBtn = `<button class="month-tab active" data-month="">全期間</button>`;
+  const monthBtns = range.map(ym => {
+    const hasData = dataMonths.has(ym);
+    return `<button class="month-tab${hasData ? "" : " no-data"}" data-month="${ym}">${makeLabel(ym)}</button>`;
+  }).join("");
+
+  container.innerHTML = allBtn + monthBtns;
+
+  container.querySelectorAll(".month-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      if (btn.classList.contains("no-data")) return;
+      currentMonth = btn.dataset.month;
+      container.querySelectorAll(".month-tab").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      applyFilters();
+    });
+  });
+}
+
+/* ===== フィルター ===== */
+function populateMarkets(rows) {
+  const markets = [...new Set(rows.map(r => r.market).filter(Boolean))].sort();
+  const sel = document.getElementById("filterMarket");
+  markets.forEach(m => {
+    const opt = document.createElement("option");
+    opt.value = m; opt.textContent = m;
+    sel.appendChild(opt);
+  });
+}
+
+function applyFilters() {
+  const type   = document.getElementById("filterType").value;
+  const market = document.getElementById("filterMarket").value;
+  const from   = document.getElementById("filterDateFrom").value;
+  const to     = document.getElementById("filterDateTo").value;
+  const code   = document.getElementById("filterCode").value.trim();
+
+  filtered = allRows.filter(r => {
+    if (currentMonth && !r.stop_date.startsWith(currentMonth)) return false;
+    if (type   && r.stop_type !== type)   return false;
+    if (market && r.market    !== market) return false;
+    if (from   && r.stop_date <  from)   return false;
+    if (to     && r.stop_date >  to)     return false;
+    if (code   && r.code      !== code)  return false;
+    // ギャップフィルター
+    if (gapFilter) {
+      const gp = parseFloat(r.gap_pct);
+      if (gapFilter === "up"     && !(gp > 0))           return false;
+      if (gapFilter === "down"   && !(gp < 0))           return false;
+      if (gapFilter === "zero"   && gp !== 0)            return false;
+      if (gapFilter === "yorazu" && r.yorazu !== "True") return false;
+    }
+    return true;
+  });
+
+  sortRows();
+  currentPage = 1;
+  renderStats();
+  renderTable();
+}
+
+/* ===== ソート ===== */
+function sortRows() {
+  filtered.sort((a, b) => {
+    let av = a[sortCol] ?? "";
+    let bv = b[sortCol] ?? "";
+    if (["prev_close","next_open","gap_yen","gap_pct","volume"].includes(sortCol)) {
+      av = parseFloat(av) || 0;
+      bv = parseFloat(bv) || 0;
+    }
+    if (av < bv) return sortAsc ? -1 :  1;
+    if (av > bv) return sortAsc ?  1 : -1;
+
+    // 同一日内: S高を先・S安を後、それぞれコード番号順
+    if (a.stop_date === b.stop_date) {
+      if (a.stop_type !== b.stop_type) {
+        return a.stop_type === "stop_high" ? -1 : 1;
+      }
+    }
+    const ca = parseInt(a.code) || 0;
+    const cb = parseInt(b.code) || 0;
+    return ca < cb ? -1 : ca > cb ? 1 : 0;
+  });
+}
+
+/* ===== スタッツ ===== */
+function median(arr) {
+  if (!arr.length) return null;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function renderStats() {
+  const highGaps = allRows
+    .filter(r => r.stop_type === "stop_high" && r.gap_pct)
+    .map(r => parseFloat(r.gap_pct));
+  const lowGaps = allRows
+    .filter(r => r.stop_type === "stop_low" && r.gap_pct)
+    .map(r => parseFloat(r.gap_pct));
+
+  const medHigh = median(highGaps);
+  const medLow  = median(lowGaps);
+  const fmt = v => v === null ? "—" : (v > 0 ? "+" : "") + v.toFixed(2) + "%";
+  const cls = v => v === null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
+
+  const gaps   = filtered.filter(r => r.gap_pct).map(r => parseFloat(r.gap_pct));
+  const pos    = gaps.filter(g => g > 0).length;
+  const neg    = gaps.filter(g => g < 0).length;
+  const zer    = gaps.filter(g => g === 0).length;
+  const yorazu = filtered.filter(r => r.yorazu === "True").length;
+
+  const currentType = document.getElementById("filterType").value;
+  const highOn = currentType === "stop_high";
+  const lowOn  = currentType === "stop_low";
+
+  const gfNone   = gapFilter === "";
+  const gfUp     = gapFilter === "up";
+  const gfDown   = gapFilter === "down";
+  const gfZero   = gapFilter === "zero";
+  const gfYorazu = gapFilter === "yorazu";
+
+  document.getElementById("statsBar").innerHTML = `
+    <div class="stat-card stat-btn ${gfNone ? "btn-on" : ""}" onclick="setGapFilter('')">
+      <div class="val">${filtered.length}</div><div class="lbl">銘柄数</div>
+    </div>
+    <div class="stat-card"><div class="val ${cls(medHigh)}">${fmt(medHigh)}</div><div class="lbl">S高平均ギャップ</div></div>
+    <div class="stat-card stat-btn ${highOn ? "btn-on-high" : ""}" onclick="setTypeFilter('stop_high')">
+      <div class="val">S高</div><div class="lbl">のみ表示</div>
+    </div>
+    <div class="stat-card"><div class="val ${cls(medLow)}">${fmt(medLow)}</div><div class="lbl">S安平均ギャップ</div></div>
+    <div class="stat-card stat-btn ${lowOn ? "btn-on-low" : ""}" onclick="setTypeFilter('stop_low')">
+      <div class="val">S安</div><div class="lbl">のみ表示</div>
+    </div>
+    <div class="stat-card stat-btn ${gfUp ? "btn-on" : ""}" onclick="setGapFilter('up')">
+      <div class="val pos">${pos}</div><div class="lbl">ギャップアップ</div>
+    </div>
+    <div class="stat-card stat-btn ${gfDown ? "btn-on" : ""}" onclick="setGapFilter('down')">
+      <div class="val neg">${neg}</div><div class="lbl">ギャップダウン</div>
+    </div>
+    <div class="stat-card stat-btn ${gfZero ? "btn-on" : ""}" onclick="setGapFilter('zero')">
+      <div class="val">${zer}</div><div class="lbl">ギャップなし</div>
+    </div>
+    <div class="stat-card stat-btn ${gfYorazu ? "btn-on" : ""}" onclick="setGapFilter('yorazu')">
+      <div class="val">${yorazu}</div><div class="lbl">寄らず</div>
+    </div>
+  `;
+}
+
+/* ===== テーブル描画 ===== */
+function renderTable() {
+  const ps = parseInt(document.getElementById("pageSize").value);
+  totalPages  = ps >= 9999 ? 1 : Math.max(1, Math.ceil(filtered.length / ps));
+  currentPage = Math.min(currentPage, totalPages);
+
+  const start = ps >= 9999 ? 0 : (currentPage - 1) * ps;
+  const end   = ps >= 9999 ? filtered.length : Math.min(start + ps, filtered.length);
+  const page  = filtered.slice(start, end);
+
+  const tbody = document.getElementById("tableBody");
+
+  const todayJST = (() => {
+    const d = new Date();
+    return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
+  })();
+
+  const P  = (cls, txt) => `<span class="lbl ${cls}">${txt}</span>`;
+  const NW = (cls, lbl, val) =>
+    `<div class="num-wrap"><span class="nv">${val}</span><span class="nwsp"></span>${P(cls, lbl)}</div>`;
+  const PENDING = `<div class="pending-wrap"><span class="pending">翌日取得待ち</span></div>`;
+
+  let lastDate = null;
+  let groupIdx = 0;
+  tbody.innerHTML = page.map(r => {
+    let sep = "";
+    if (r.stop_date !== lastDate) {
+      lastDate = r.stop_date;
+      groupIdx = 0;
+      let label;
+      if (r._pending) {
+        label = `⏳ ${r.stop_date}（翌営業日: ${r.next_date}）　取得待ち`;
+      } else if (!r.next_open && r.next_date >= todayJST) {
+        label = `● ${r.stop_date}（翌営業日: ${r.next_date}）　⚠ 当日データ取得中`;
+      } else {
+        label = `● ${r.stop_date}（翌営業日: ${r.next_date}）`;
+      }
+      sep = `<tr class="date-sep"><td colspan="17">${label}</td></tr>`;
+    }
+    const isLow = r.stop_type === "stop_low";
+    const rowClass  = groupIdx++ % 2 === 0
+      ? (isLow ? "row-low-odd"  : "row-odd")
+      : (isLow ? "row-low-even" : "row-even");
+    const isPending = r._pending === true || (!r.next_open && r.next_date >= todayJST);
+
+    const prevClose = NW("lbl-prev", "前", parseFloat(r.prev_close).toLocaleString());
+
+    const gp      = parseFloat(r.gap_pct);
+    const gpClass = isNaN(gp) ? "" : gp > 0 ? "gap-pos" : gp < 0 ? "gap-neg" : "gap-zero";
+    const gpTxt   = isNaN(gp) ? "—" : (gp > 0 ? "+" : "") + gp.toFixed(2) + "%";
+    const gyTxt   = r.gap_yen
+      ? (parseFloat(r.gap_yen) > 0 ? "+" : "") + parseFloat(r.gap_yen).toFixed(1) : "—";
+
+    const openVal = r.next_open ? parseFloat(r.next_open).toLocaleString() : "—";
+    const openTxt = isPending ? PENDING : NW("lbl-yori", "寄", openVal);
+
+    const rv      = parseFloat(r.range_pct);
+    const rvClass = isNaN(rv) ? "" : rv > 0 ? "gap-pos" : rv < 0 ? "gap-neg" : "gap-zero";
+    const rvTxt   = isNaN(rv) ? "—" : (rv > 0 ? "+" : "") + rv.toFixed(2) + "%";
+    const ryTxt   = r.range_yen
+      ? (parseFloat(r.range_yen) > 0 ? "+" : "") + parseFloat(r.range_yen).toFixed(1) : "—";
+
+    const highVal  = r.next_high  ? parseFloat(r.next_high).toLocaleString()  : "—";
+    const highTxt  = isPending ? PENDING : NW("lbl-high",  "高", highVal);
+    const lowVal   = r.next_low   ? parseFloat(r.next_low).toLocaleString()   : "—";
+    const lowTxt   = isPending ? PENDING : NW("lbl-low",   "安", lowVal);
+    const closeVal = r.next_close ? parseFloat(r.next_close).toLocaleString() : "—";
+    const closeTxt = isPending ? PENDING : NW("lbl-close", "終", closeVal);
+
+    const volVal = r.volume ? parseInt(r.volume).toLocaleString() : "—";
+    const volTxt = isPending ? PENDING : NW("lbl-vol", "出", volVal);
+
+    // 連続ストップバッジ
+    const streakKey = `${r.code}_${r.stop_type}_${r.stop_date}`;
+    const streak = streakMap[streakKey] || 1;
+    const streakClass = r.stop_type === "stop_high" ? "streak-high" : "streak-low";
+    const streakBadge = streak >= 2
+      ? `<span class="streak-badge ${streakClass}">${streak}日連続</span>`
+      : "";
+
+    const badge  = r.stop_type === "stop_high"
+      ? '<span class="badge badge-high">高</span>'
+      : '<span class="badge badge-low">安</span>';
+    const yorazu = r.yorazu === "True"
+      ? '<span class="badge badge-yorazu">寄らず</span>' : "";
+
+    // 理由テキスト
+    const reasonHtml = r.reason
+      ? `<div class="reason-text">📰 ${r.reason}</div>`
+      : "";
+
+    // Y/X ソーシャルリンク
+    const yUrl = `https://finance.yahoo.co.jp/quote/${r.code}.T/forum`;
+    const xUrl = `https://x.com/search?q=${encodeURIComponent(r.code + " 株")}`;
+    const snsLinks = `<span class="sns-wrap"><a href="${yUrl}" target="_blank" class="btn-y">Y</a><a href="${xUrl}" target="_blank" class="btn-x">X</a></span>`;
+
+    return sep + `<tr class="${rowClass}">
+      <td>${r.stop_date}</td>
+      <td>${r.next_date}</td>
+      <td><a href="https://kabutan.jp/stock/?code=${r.code}" target="_blank" class="btn-k">K</a> <a href="https://kabutan.jp/stock/?code=${r.code}" target="_blank">${r.code}</a></td>
+      <td>${snsLinks}${r.name}${reasonHtml}</td>
+      <td>${r.market}</td>
+      <td>${badge}${streakBadge}</td>
+      <td>${prevClose}</td>
+      <td>${openTxt}</td>
+      <td style="text-align:right" class="${isPending?"":gpClass}">${isPending?"—":gyTxt}</td>
+      <td style="text-align:right" class="${isPending?"":gpClass}">${isPending?"—":gpTxt}</td>
+      <td>${highTxt}</td>
+      <td>${lowTxt}</td>
+      <td>${closeTxt}</td>
+      <td style="text-align:right" class="${isPending?"":rvClass}">${isPending?"—":ryTxt}</td>
+      <td style="text-align:right" class="${isPending?"":rvClass}">${isPending?"—":rvTxt}</td>
+      <td>${volTxt}</td>
+      <td>${yorazu}</td>
+    </tr>`;
+  }).join("");
+
+  document.getElementById("mainTable").style.display = "";
+  document.getElementById("loading").style.display   = "none";
+
+  const pag = document.getElementById("pagination");
+  if (totalPages <= 1 && filtered.length <= ps) {
+    pag.style.display = "none";
+  } else {
+    pag.style.display = "flex";
+    document.getElementById("pageInfo").textContent =
+      `${start + 1}–${end} / ${filtered.length}件  (${currentPage}/${totalPages}ページ)`;
+    document.getElementById("btnFirst").disabled = currentPage === 1;
+    document.getElementById("btnPrev").disabled  = currentPage === 1;
+    document.getElementById("btnNext").disabled  = currentPage === totalPages;
+    document.getElementById("btnLast").disabled  = currentPage === totalPages;
+  }
+}
+
+function goPage(p) {
+  currentPage = Math.max(1, Math.min(p, totalPages));
+  renderTable();
+}
+
+/* S高/S安ワンクリックフィルター（同じボタン再クリックでリセット） */
+function setTypeFilter(type) {
+  const sel = document.getElementById("filterType");
+  sel.value = sel.value === type ? "" : type;
+  applyFilters();
+}
+
+/* ギャップ種別フィルター（銘柄数=リセット、再クリックでリセット） */
+function setGapFilter(type) {
+  gapFilter = gapFilter === type ? "" : type;
+  applyFilters();
+}
+
+/* ===== ソートクリック ===== */
+document.querySelectorAll("thead th[data-col]").forEach(th => {
+  th.addEventListener("click", () => {
+    const col = th.dataset.col;
+    if (sortCol === col) { sortAsc = !sortAsc; }
+    else { sortCol = col; sortAsc = false; }
+    document.querySelectorAll("thead th").forEach(t =>
+      t.classList.remove("sorted-asc", "sorted-desc"));
+    th.classList.add(sortAsc ? "sorted-asc" : "sorted-desc");
+    sortRows();
+    renderTable();
+  });
+});
+
+/* ===== フィルター変更 ===== */
+["filterType","filterMarket","filterDateFrom","filterDateTo","filterCode","pageSize"]
+  .forEach(id => document.getElementById(id).addEventListener("change", applyFilters));
+document.getElementById("filterCode").addEventListener("input", applyFilters);
+
+/* ===== 初期化 ===== */
+(async () => {
+  allRows = await loadCSV();
+  if (!allRows.length) return;
+
+  // stopstock から CSV 未収録の最新銘柄を取得して先頭に追加
+  const existingKeys = new Set(allRows.map(r => `${r.stop_date}_${r.code}_${r.stop_type}`));
+  const pendingRows  = await loadStopstock(existingKeys);
+  if (pendingRows.length) allRows = [...pendingRows, ...allRows];
+
+  // 連続ストップ日数マップを構築
+  streakMap = buildStreaks(allRows);
+
+  populateMarkets(allRows);
+  renderMonthTabs();
+  filtered = [...allRows];
+  sortRows();
+  renderStats();
+  renderTable();
+})();
+</script>
+</body>
+</html>
