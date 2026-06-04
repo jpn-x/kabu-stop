@@ -12,7 +12,7 @@ echo === %DATESTR% %TIMESTR% === >> %LOGFILE%
 
 "%PYTHON%" scraper.py >> %LOGFILE% 2>&1
 if %ERRORLEVEL% neq 0 (
-    echo SKIP: scraper failed exit %ERRORLEVEL% >> %LOGFILE%
+    echo SKIP: scraper failed >> %LOGFILE%
     echo. >> %LOGFILE%
     exit /b 0
 )
@@ -22,12 +22,6 @@ if %ERRORLEVEL% neq 0 (
 if %ERRORLEVEL% neq 0 (
     "%GIT%" commit -m "Update stock data: %DATESTR%" >> %LOGFILE% 2>&1
     "%GIT%" pull --rebase origin main >> %LOGFILE% 2>&1
-    if %ERRORLEVEL% neq 0 (
-        echo GIT PULL FAILED >> %LOGFILE%
-        "%GIT%" rebase --abort >> %LOGFILE% 2>&1
-        echo. >> %LOGFILE%
-        exit /b 1
-    )
     "%GIT%" push >> %LOGFILE% 2>&1
     if %ERRORLEVEL% neq 0 (
         echo GIT PUSH FAILED >> %LOGFILE%
