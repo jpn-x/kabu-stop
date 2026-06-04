@@ -23,11 +23,6 @@ if %ERRORLEVEL% neq 0 (
     "%GIT%" commit -m "Update stock data: %DATESTR%" >> %LOGFILE% 2>&1
     "%GIT%" pull --rebase origin main >> %LOGFILE% 2>&1
     "%GIT%" push >> %LOGFILE% 2>&1
-    if %ERRORLEVEL% neq 0 (
-        echo GIT PUSH FAILED >> %LOGFILE%
-        echo. >> %LOGFILE%
-        exit /b 1
-    )
     echo PUSHED: %DATESTR% >> %LOGFILE%
 ) else (
     echo NO CHANGE >> %LOGFILE%
