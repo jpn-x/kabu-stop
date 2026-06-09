@@ -3,7 +3,7 @@ name: Daily Stock Data Update
 on:
   schedule:
     # 毎週月〜金 16:10 JST (= 07:10 UTC)
-    - cron: '10 7 * * 1-5'
+    - cron: '30 8 * * 1-5'
   workflow_dispatch:
     # 手動実行も可能
 

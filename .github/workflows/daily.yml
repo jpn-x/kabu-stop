@@ -3,7 +3,7 @@ name: Daily Gap Analysis
 on:
   schedule:
     # 毎営業日 17:30 JST (08:30 UTC) に実行
-    - cron: '30 8 * * 1-5'
+    - cron: '50 8 * * 1-5'
   workflow_dispatch:
     inputs:
       backfill:
