@@ -58,6 +58,19 @@
   .month-tab.active  { background: #fff; color: #1a1a2e; font-weight: 700; border-color: #fff; }
   .month-tab.no-data { opacity: 0.35; cursor: default; }
   .month-tab.no-data:hover { background: rgba(255,255,255,0.1); color: #ccd; }
+  .reload-btn {
+    margin-left: 0.8em;
+    padding: 4px 10px;
+    font-size: 0.78rem;
+    background: rgba(255,255,255,0.08);
+    color: #aab;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s, color 0.15s;
+  }
+  .reload-btn:hover { background: rgba(255,200,80,0.25); color: #ffd060; border-color: #ffd060; }
 
   /* ===== コントロール＋スタッツ ===== */
   #stickyTop { flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,.15); z-index: 10; }
@@ -593,7 +606,7 @@ function renderMonthTabs() {
     return `${y}/${parseInt(m)}月`;
   };
 
-  const allBtn = `<button class="month-tab active" data-month="">全期間</button>`;
+  const allBtn = `<button class="month-tab active" data-month="">全期間</button><button class="reload-btn" onclick="location.reload(true)" title="キャッシュをクリアして再読み込み (Shift+Ctrl+R)">⟳ 強制リロード</button>`;
   const monthBtns = range.map(ym => {
     const hasData = dataMonths.has(ym);
     return `<button class="month-tab${hasData ? "" : " no-data"}" data-month="${ym}">${makeLabel(ym)}</button>`;
