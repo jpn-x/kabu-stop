@@ -606,7 +606,7 @@ function renderMonthTabs() {
     return `${y}/${parseInt(m)}月`;
   };
 
-  const allBtn = `<button class="month-tab active" data-month="">全期間</button><button class="reload-btn" onclick="location.reload(true)" title="キャッシュをクリアして再読み込み (Shift+Ctrl+R)">⟳ 強制リロード</button>`;
+  const allBtn = `<button class="reload-btn" onclick="location.reload(true)" title="キャッシュをクリアして再読み込み (Shift+Ctrl+R)">⟳ 強制リロード</button><button class="month-tab active" data-month="">全期間</button>`;
   const monthBtns = range.map(ym => {
     const hasData = dataMonths.has(ym);
     return `<button class="month-tab${hasData ? "" : " no-data"}" data-month="${ym}">${makeLabel(ym)}</button>`;
