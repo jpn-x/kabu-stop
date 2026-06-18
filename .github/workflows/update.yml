@@ -1,11 +1,11 @@
 name: Daily Stock Data Update
 
 on:
-  schedule:
-    # 毎週月〜金 16:10 JST (= 07:10 UTC)
-    - cron: '30 8 * * 1-5'
+  # cron は無効化（ローカルTask Schedulerが主系）
+  # schedule:
+  #   - cron: '30 8 * * 1-5'
   workflow_dispatch:
-    # 手動実行も可能
+    # 手動実行のみ（PCが落ちた日の緊急バックアップ用）
 
 jobs:
   update:
