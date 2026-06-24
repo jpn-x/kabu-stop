@@ -1,8 +1,8 @@
 @echo off
-cd /d "C:\Users\testuser\Documents\kabu-stop"
+cd /d "C:\Users\murayan\Documents\jpn-x\kabu-stop"
 
 set LOGFILE=scraper_log.txt
-set PYTHON=C:\Users\testuser\AppData\Local\Python\bin\python.exe
+set PYTHON=C:\Users\murayan\AppData\Local\Programs\Python\Python312\python.exe
 set GIT=C:\Program Files\Git\cmd\git.exe
 set PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;%PATH%
 
