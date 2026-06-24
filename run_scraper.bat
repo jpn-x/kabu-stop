@@ -17,10 +17,12 @@ if %ERRORLEVEL% neq 0 (
     exit /b 0
 )
 
-"%GIT%" add data/stock_data.json >> %LOGFILE% 2>&1
+"%PYTHON%" analyzer.py >> %LOGFILE% 2>&1
+
+"%GIT%" add data/stock_data.json data/gap_data.csv >> %LOGFILE% 2>&1
 "%GIT%" diff --staged --quiet
 if %ERRORLEVEL% neq 0 (
-    "%GIT%" commit -m "Update stock data: %DATESTR%" >> %LOGFILE% 2>&1
+    "%GIT%" commit -m "auto: データ更新 %DATESTR%" >> %LOGFILE% 2>&1
     "%GIT%" pull --rebase origin main >> %LOGFILE% 2>&1
     "%GIT%" push >> %LOGFILE% 2>&1
     echo PUSHED: %DATESTR% >> %LOGFILE%
