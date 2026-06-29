@@ -384,6 +384,7 @@ def main():
         existing_keys = {
             f"{r.stop_date}_{r.code}_{r.stop_type}"
             for r in existing_df.itertuples()
+            if not (r.yorazu and pd.isna(r.next_open))
         }
 
     all_results: list[dict] = []
