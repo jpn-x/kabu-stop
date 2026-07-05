@@ -2,16 +2,18 @@ name: Deploy to Cloudflare
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Daily Stock Data Update", "Daily Gap Analysis"]
-    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - 'data/**'
+      - 'index.html'
 
 permissions:
   contents: read
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ true }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
