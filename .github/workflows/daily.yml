@@ -1,9 +1,8 @@
 name: Daily Gap Analysis
 
 on:
-  # cron は無効化（ローカルTask Schedulerが主系）
-  # schedule:
-  #   - cron: '50 8 * * 1-5'
+  schedule:
+    - cron: '10 12 * * 1-5'   # 21:10 JST 平日（株データ更新の10分後）
   workflow_dispatch:
     inputs:
       backfill:
@@ -45,6 +44,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/gap_data.csv
-          git diff --staged --quiet || git commit -m "gap data: $(date +%Y-%m-%d)"
-          git pull --rebase origin main
-          git push
+          git diff --staged --quiet && echo "No changes" && exit 0
+          git commit -m "gap data: $(date +%Y-%m-%d)"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && break
+            sleep 5
+          done
