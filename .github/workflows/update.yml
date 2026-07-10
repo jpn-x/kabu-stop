@@ -2,7 +2,7 @@ name: Daily Stock Data Update
 
 on:
   schedule:
-    - cron: '0 12 * * 1-5'   # 21:00 JST 平日（kabudragon が21時以降に更新）
+    - cron: '30 7 * * 1-5'   # 16:30 JST 平日（引け後・株探warning板を取得）
   workflow_dispatch:
     inputs:
       target_date:
