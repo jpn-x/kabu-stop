@@ -47,10 +47,37 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # リモート最新を取得
+          git fetch origin
+
+          # ローカル新データ + リモート既存データを Python でマージ（コンフリクト回避）
+          python3 - <<'PYEOF'
+          import json, subprocess
+          with open('data/stock_data.json', encoding='utf-8') as f:
+              ours = json.load(f)
+          try:
+              remote = json.loads(subprocess.check_output(
+                  ['git', 'show', 'origin/main:data/stock_data.json']))
+          except Exception:
+              remote = {}
+          merged = dict(remote)
+          for month, days in ours.items():
+              by_date = {d['date']: d for d in merged.get(month, [])}
+              for day in days:
+                  by_date[day['date']] = day  # 今回取得データを優先
+              merged[month] = sorted(by_date.values(), key=lambda x: x['date'])
+          with open('/tmp/stock_data_merged.json', 'w', encoding='utf-8') as f:
+              json.dump(merged, f, ensure_ascii=False, indent=2)
+          total = sum(len(v) for v in merged.values())
+          print(f'マージ完了: {total} 日分')
+          PYEOF
+
+          # リモートにリセットしてマージ済みデータを適用（コンフリクト不可能な状態にする）
+          git reset --hard origin/main
+          cp /tmp/stock_data_merged.json data/stock_data.json
+
           git add data/stock_data.json
-          git diff --staged --quiet && echo "No changes" && exit 0
+          git diff --staged --quiet && echo "変更なし → スキップ" && exit 0
           git commit -m "auto: update $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M:%S')"
-          for i in 1 2 3; do
-            git pull --rebase origin main && git push && break
-            sleep 5
-          done
+          git push

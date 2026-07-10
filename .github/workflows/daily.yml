@@ -43,10 +43,43 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # リモート最新を取得
+          git fetch origin
+
+          # ローカル新データ + リモート既存データを Python でマージ（コンフリクト回避）
+          python3 - <<'PYEOF'
+          import csv, io, subprocess
+
+          with open('data/gap_data.csv', encoding='utf-8') as f:
+              reader = csv.DictReader(f)
+              fieldnames = reader.fieldnames
+              ours = {row['date']: row for row in reader}
+
+          try:
+              raw = subprocess.check_output(
+                  ['git', 'show', 'origin/main:data/gap_data.csv']).decode('utf-8')
+              reader2 = csv.DictReader(io.StringIO(raw))
+              remote = {row['date']: row for row in reader2}
+          except Exception:
+              remote = {}
+
+          merged = dict(remote)
+          merged.update(ours)  # 今回取得データを優先
+          sorted_rows = sorted(merged.values(), key=lambda x: x['date'])
+
+          with open('/tmp/gap_data_merged.csv', 'w', newline='', encoding='utf-8') as f:
+              writer = csv.DictWriter(f, fieldnames=fieldnames or list(sorted_rows[0].keys()))
+              writer.writeheader()
+              writer.writerows(sorted_rows)
+          print(f'マージ完了: {len(sorted_rows)} 日分')
+          PYEOF
+
+          # リモートにリセットしてマージ済みデータを適用（コンフリクト不可能な状態にする）
+          git reset --hard origin/main
+          cp /tmp/gap_data_merged.csv data/gap_data.csv
+
           git add data/gap_data.csv
-          git diff --staged --quiet && echo "No changes" && exit 0
-          git commit -m "gap data: $(date +%Y-%m-%d)"
-          for i in 1 2 3; do
-            git pull --rebase origin main && git push && break
-            sleep 5
-          done
+          git diff --staged --quiet && echo "変更なし → スキップ" && exit 0
+          git commit -m "gap data: $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M:%S')"
+          git push
