@@ -54,8 +54,6 @@ def scrape_kabudragon(session: requests.Session, kind: str, date_str: str | None
     print(f"  Fetching {url}")
     resp = session.get(url, timeout=30)
     resp.raise_for_status()
-    # kabudragon は Shift-JIS
-    resp.encoding = "shift_jis"
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
