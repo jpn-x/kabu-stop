@@ -4,7 +4,10 @@ on:
   schedule:
     - cron: '30 8 * * 1-5'   # 17:30 JST 平日（GitHub Actions 主系に変更）
   workflow_dispatch:
-    # 手動実行（緊急バックアップ用）
+    inputs:
+      target_date:
+        description: '対象日 (YYYY-MM-DD) — 空欄で当日'
+        required: false
 
 jobs:
   update:
@@ -29,6 +32,8 @@ jobs:
       - name: Run scraper
         id: scraper
         continue-on-error: true
+        env:
+          TARGET_DATE: ${{ github.event.inputs.target_date }}
         run: python scraper.py
 
       - name: Check scraper result
