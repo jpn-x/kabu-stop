@@ -2,6 +2,9 @@ name: Deploy to Cloudflare
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["Daily Stock Data Update"]
+    types: [completed]
   push:
     branches: [main]
     paths:
