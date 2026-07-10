@@ -52,7 +52,7 @@ def make_session() -> requests.Session:
     return s
 
 
-def scrape_kabutan(session: requests.Session, mode: str) -> list[dict]:
+def scrape_kabutan(session: requests.Session, mode: str, date_str: str | None = None) -> list[dict]:
     """
     mode='3_1' → ストップ高
     mode='3_2' → ストップ安
@@ -73,6 +73,8 @@ def scrape_kabutan(session: requests.Session, mode: str) -> list[dict]:
     <td>             利回り          ← tds[11]
     """
     url = f"https://kabutan.jp/warning/?mode={mode}"
+    if date_str:
+        url += f"&date={date_str}"
     print(f"  Fetching {url}")
 
     session.headers.update({"Referer": "https://kabutan.jp/"})
@@ -175,9 +177,21 @@ def save(all_data: dict) -> None:
 
 def main():
     now = datetime.now(JST)
-    today = now.date()
-    date_str  = now.strftime("%Y-%m-%d")
-    month_key = now.strftime("%Y-%m")
+
+    # TARGET_DATE 環境変数で過去日バックフィル対応（YYYY-MM-DD）
+    target = os.environ.get("TARGET_DATE", "").strip()
+    if target:
+        from datetime import date as date_type
+        today = date_type.fromisoformat(target)
+        date_str  = target
+        month_key = target[:7]
+        now_str = now.isoformat()
+    else:
+        today = now.date()
+        date_str  = now.strftime("%Y-%m-%d")
+        month_key = now.strftime("%Y-%m")
+        now_str = now.isoformat()
+
     print(f"=== 株データ取得: {date_str} ===")
 
     # 土日・祝日はスキップ（カブタンのデータは前営業日のものになるため）
@@ -189,13 +203,13 @@ def main():
 
     try:
         print("ストップ高 取得中...")
-        stop_high = scrape_kabutan(session, "3_1")
+        stop_high = scrape_kabutan(session, "3_1", date_str if target else None)
         print(f"  → {len(stop_high)} 銘柄")
 
         time.sleep(2)
 
         print("ストップ安 取得中...")
-        stop_low = scrape_kabutan(session, "3_2")
+        stop_low = scrape_kabutan(session, "3_2", date_str if target else None)
         print(f"  → {len(stop_low)} 銘柄")
 
     except requests.RequestException as e:
@@ -204,7 +218,7 @@ def main():
 
     today_record = {
         "date":       date_str,
-        "updated_at": now.isoformat(),
+        "updated_at": now_str,
         "stop_high":  stop_high,
         "stop_low":   stop_low,
     }
@@ -227,3 +241,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
