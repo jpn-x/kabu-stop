@@ -1,7 +1,13 @@
 """
-kabudragon ストップ高・ストップ安 スクレイパー
-毎日 16:10 JST 以降に実行する
-（kabutan は GitHub Actions IP をブロックするため kabudragon に切り替え）
+株探 ストップ高・ストップ安 スクレイパー
+毎日 16:30 JST（引け後）に実行する。
+
+株探は GitHub Actions の IP をブロックするため、
+Cloudflare Worker のプロキシ経由で取得する:
+  https://stop-data.cadillac600.workers.dev/proxy?url=<kabutan URL>
+
+  mode=3_1 → ストップ高
+  mode=3_2 → ストップ安
 """
 
 import requests
@@ -10,12 +16,19 @@ import json
 import os
 import time
 import sys
+import urllib.parse
 from datetime import datetime, date, timezone, timedelta
 
 import jpholiday
 
 JST = timezone(timedelta(hours=9))
 DATA_FILE = "data/stock_data.json"
+
+# Cloudflare Worker プロキシ（環境変数で上書き可）
+PROXY_BASE = os.environ.get(
+    "KABUTAN_PROXY",
+    "https://stop-data.cadillac600.workers.dev/proxy",
+)
 
 BASE_HEADERS = {
     "User-Agent": (
@@ -34,61 +47,50 @@ def make_session() -> requests.Session:
     return s
 
 
-def scrape_kabudragon(session: requests.Session, kind: str, date_str: str | None = None) -> list[dict]:
+def scrape_kabutan(session: requests.Session, mode: str) -> list[dict]:
     """
-    kind='stopdaka' → ストップ高
-    kind='stopyasu' → ストップ安
-    date_str → 'YYYY-MM-DD' で過去日取得（省略時は最新）
+    mode='3_1' → ストップ高
+    mode='3_2' → ストップ安
 
-    kabudragon テーブル構造 (class="rankingFrame"):
-    td[0] 順位  td[1] コード  td[2] 銘柄名(a)  td[3] 市場
-    td[4] 取引日  td[5] 取引値  td[6] 前日比  td[7] 変動率%
-    td[8] 出来高  td[9] 高値  td[10] 安値
+    株探 warning テーブル (table.stock_table) の1行は
+    find_all(['th','td']) で 13 セル:
+      [0] コード  [1] 銘柄名(th)  [2] 市場  [3] チャート  [4] （空）
+      [5] 株価    [6] S印         [7] 前日比 [8] 変動率%  [9] ニュース
+      [10] PER    [11] PBR        [12] 利回り
     """
-    if date_str:
-        y, m, d = date_str.split("-")
-        url = f"https://www.kabudragon.com/ranking/{y}/{m}/{d}/{kind}.html"
-    else:
-        url = f"https://www.kabudragon.com/ranking/{kind}.html"
+    kabutan_url = f"https://kabutan.jp/warning/?mode={mode}"
+    proxy_url = f"{PROXY_BASE}?url={urllib.parse.quote(kabutan_url, safe='')}"
 
-    print(f"  Fetching {url}")
-    resp = session.get(url, timeout=30)
+    print(f"  Fetching {kabutan_url} (via proxy)")
+    resp = session.get(proxy_url, timeout=30)
     resp.raise_for_status()
+    resp.encoding = "utf-8"
 
     soup = BeautifulSoup(resp.text, "html.parser")
-
-    # class="rankingFrame" のテーブルを探す
-    frame = soup.find("table", class_="rankingFrame")
-    if not frame:
-        print("  警告: rankingFrame が見つかりません")
+    table = soup.find("table", class_="stock_table")
+    if not table:
+        print("  警告: stock_table が見つかりません")
         return []
 
     stocks = []
-    for row in frame.find_all("tr"):
-        tds = row.find_all("td")
-        if len(tds) != 11:
+    for row in table.find_all("tr"):
+        cells = row.find_all(["th", "td"])
+        if len(cells) != 13:
             continue
-        # td[1] がコード（数字のみ）
-        code = tds[1].get_text(strip=True)
-        if not code.isdigit() and not (len(code) == 4 and code[:3].isdigit()):
+        code = cells[0].get_text(strip=True)
+        # コードは数字始まり（4桁 or 3桁+英字 例:264A）
+        if not code[:1].isdigit():
             continue
-
-        name_a = tds[2].find("a")
-        name = name_a.get_text(strip=True) if name_a else tds[2].get_text(strip=True)
-        market = tds[3].get_text(strip=True)
-        price  = tds[5].get_text(strip=True).replace(",", "")
-        change = tds[6].get_text(strip=True).replace(",", "")
-        rate   = tds[7].get_text(strip=True).replace("%", "").strip().lstrip("+")
 
         stocks.append({
             "code":   code,
-            "name":   name,
-            "market": market,
-            "price":  price,
-            "change": change,
-            "rate":   rate,
-            "per":    "",
-            "pbr":    "",
+            "name":   cells[1].get_text(strip=True),
+            "market": cells[2].get_text(strip=True),
+            "price":  cells[5].get_text(strip=True).replace(",", ""),
+            "change": cells[7].get_text(strip=True).replace(",", ""),
+            "rate":   cells[8].get_text(strip=True).replace("%", "").strip().lstrip("+"),
+            "per":    cells[10].get_text(strip=True).replace("−", "").replace("－", ""),
+            "pbr":    cells[11].get_text(strip=True).replace("−", "").replace("－", ""),
         })
 
     return stocks
@@ -124,7 +126,7 @@ def save(all_data: dict) -> None:
 def main():
     now = datetime.now(JST)
 
-    # TARGET_DATE 環境変数で過去日バックフィル対応（YYYY-MM-DD）
+    # TARGET_DATE は日付ラベルの上書きのみ（株探はリアルタイム板のため過去取得は不可）
     target = os.environ.get("TARGET_DATE", "").strip()
     if target:
         from datetime import date as date_type
@@ -143,17 +145,16 @@ def main():
         sys.exit(0)
 
     session = make_session()
-    fetch_date = date_str if target else None
 
     try:
         print("ストップ高 取得中...")
-        stop_high = scrape_kabudragon(session, "stopdaka", fetch_date)
+        stop_high = scrape_kabutan(session, "3_1")
         print(f"  → {len(stop_high)} 銘柄")
 
         time.sleep(2)
 
         print("ストップ安 取得中...")
-        stop_low = scrape_kabudragon(session, "stopyasu", fetch_date)
+        stop_low = scrape_kabutan(session, "3_2")
         print(f"  → {len(stop_low)} 銘柄")
 
     except requests.RequestException as e:
