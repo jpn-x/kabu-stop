@@ -37,7 +37,7 @@ def make_session() -> requests.Session:
 def scrape_kabudragon(session: requests.Session, kind: str, date_str: str | None = None) -> list[dict]:
     """
     kind='stopdaka' → ストップ高
-    kind='stopdana' → ストップ安
+    kind='stopyasu' → ストップ安
     date_str → 'YYYY-MM-DD' で過去日取得（省略時は最新）
 
     kabudragon テーブル構造 (class="rankingFrame"):
@@ -155,7 +155,7 @@ def main():
         time.sleep(2)
 
         print("ストップ安 取得中...")
-        stop_low = scrape_kabudragon(session, "stopdana", fetch_date)
+        stop_low = scrape_kabudragon(session, "stopyasu", fetch_date)
         print(f"  → {len(stop_low)} 銘柄")
 
     except requests.RequestException as e:
