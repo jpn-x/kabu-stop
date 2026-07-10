@@ -1,11 +1,13 @@
 name: Daily Stock Data Update
 
 on:
-  # cron は無効化（ローカルTask Schedulerが主系）
-  # schedule:
-  #   - cron: '30 8 * * 1-5'
+  schedule:
+    - cron: '30 7 * * 1-5'   # 16:30 JST 平日（引け後・株探warning板を取得）
   workflow_dispatch:
-    # 手動実行のみ（PCが落ちた日の緊急バックアップ用）
+    inputs:
+      target_date:
+        description: '対象日 (YYYY-MM-DD) — 空欄で当日'
+        required: false
 
 jobs:
   update:
@@ -30,12 +32,14 @@ jobs:
       - name: Run scraper
         id: scraper
         continue-on-error: true
+        env:
+          TARGET_DATE: ${{ github.event.inputs.target_date }}
         run: python scraper.py
 
       - name: Check scraper result
         if: steps.scraper.outcome == 'failure'
         run: |
-          echo "::warning::スクレイピング失敗（カブタンIPブロックの可能性）。データ更新をスキップします。"
+          echo "::warning::スクレイピング失敗。データ更新をスキップします。"
           exit 0
 
       - name: Commit and push
@@ -44,8 +48,9 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/stock_data.json
-          git diff --staged --quiet && echo "No changes" || (
-            git commit -m "Update stock data: $(TZ=Asia/Tokyo date +'%Y-%m-%d')"
-            git pull --rebase origin main
-            git push
-          )
+          git diff --staged --quiet && echo "No changes" && exit 0
+          git commit -m "auto: update $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M:%S')"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && break
+            sleep 5
+          done

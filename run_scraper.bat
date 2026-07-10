@@ -1,10 +1,10 @@
 @echo off
-cd /d "C:\Users\testuser\Documents\kabu-stop"
+cd /d "C:\Users\murayan\Documents\jpn-x\kabu-stop"
 
 set LOGFILE=scraper_log.txt
-set PYTHON=C:\Users\testuser\AppData\Local\Python\bin\python.exe
+set PYTHON=C:\Users\murayan\AppData\Local\Programs\Python\Python312\python.exe
 set GIT=C:\Program Files\Git\cmd\git.exe
-set PATH=C:\Program Files\Git\cmd;C:\Program Files\Git\bin;%PATH%
+set PATH=C:\Users\murayan\AppData\Local\Programs\Python\Python312;C:\Users\murayan\AppData\Local\Programs\Python\Python312\Scripts;C:\Program Files\Git\cmd;C:\Program Files\Git\bin;%PATH%
 
 for /f %%d in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set DATESTR=%%d
 for /f %%t in ('powershell -NoProfile -Command "Get-Date -Format HH:mm:ss"') do set TIMESTR=%%t
@@ -17,13 +17,15 @@ if %ERRORLEVEL% neq 0 (
     exit /b 0
 )
 
-"%GIT%" add data/stock_data.json >> %LOGFILE% 2>&1
+"%PYTHON%" analyzer.py >> %LOGFILE% 2>&1
+
+"%GIT%" add data/stock_data.json data/gap_data.csv >> %LOGFILE% 2>&1
 "%GIT%" diff --staged --quiet
 if %ERRORLEVEL% neq 0 (
-    "%GIT%" commit -m "Update stock data: %DATESTR%" >> %LOGFILE% 2>&1
+    "%GIT%" commit -m "auto: update %DATESTR% %TIMESTR%" >> %LOGFILE% 2>&1
     "%GIT%" pull --rebase origin main >> %LOGFILE% 2>&1
     "%GIT%" push >> %LOGFILE% 2>&1
-    echo PUSHED: %DATESTR% >> %LOGFILE%
+    echo PUSHED: %DATESTR% %TIMESTR% >> %LOGFILE%
 ) else (
     echo NO CHANGE >> %LOGFILE%
 )
