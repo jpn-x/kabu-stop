@@ -66,7 +66,7 @@ def scrape_kabudragon(session: requests.Session, kind: str, date_str: str | None
     stocks = []
     for row in frame.find_all("tr"):
         tds = row.find_all("td")
-        if len(tds) < 8:
+        if len(tds) != 11:
             continue
         # td[1] がコード（数字のみ）
         code = tds[1].get_text(strip=True)
