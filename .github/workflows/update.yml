@@ -2,7 +2,7 @@ name: Daily Stock Data Update
 
 on:
   schedule:
-    - cron: '30 8 * * 1-5'   # 17:30 JST 平日（GitHub Actions 主系に変更）
+    - cron: '0 12 * * 1-5'   # 21:00 JST 平日（kabudragon が21時以降に更新）
   workflow_dispatch:
     inputs:
       target_date:
@@ -39,7 +39,7 @@ jobs:
       - name: Check scraper result
         if: steps.scraper.outcome == 'failure'
         run: |
-          echo "::warning::スクレイピング失敗（カブタンIPブロックの可能性）。データ更新をスキップします。"
+          echo "::warning::スクレイピング失敗。データ更新をスキップします。"
           exit 0
 
       - name: Commit and push
@@ -48,8 +48,9 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/stock_data.json
-          git diff --staged --quiet && echo "No changes" || (
-            git commit -m "auto: update $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M:%S')"
-            git pull --rebase origin main
-            git push
-          )
+          git diff --staged --quiet && echo "No changes" && exit 0
+          git commit -m "auto: update $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M:%S')"
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push && break
+            sleep 5
+          done
