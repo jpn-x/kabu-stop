@@ -51,24 +51,27 @@ jobs:
           python3 - <<'PYEOF'
           import csv, io, subprocess
 
-          with open('data/gap_data.csv', encoding='utf-8') as f:
+          def row_key(row):
+              return (row['stop_date'], row['code'], row['stop_type'])
+
+          with open('data/gap_data.csv', encoding='utf-8-sig') as f:
               reader = csv.DictReader(f)
               fieldnames = reader.fieldnames
-              ours = {row['date']: row for row in reader}
+              ours = {row_key(row): row for row in reader}
 
           try:
               raw = subprocess.check_output(
-                  ['git', 'show', 'origin/main:data/gap_data.csv']).decode('utf-8')
+                  ['git', 'show', 'origin/main:data/gap_data.csv']).decode('utf-8-sig')
               reader2 = csv.DictReader(io.StringIO(raw))
-              remote = {row['date']: row for row in reader2}
+              remote = {row_key(row): row for row in reader2}
           except Exception:
               remote = {}
 
           merged = dict(remote)
           merged.update(ours)  # 今回取得データを優先
-          sorted_rows = sorted(merged.values(), key=lambda x: x['date'])
+          sorted_rows = sorted(merged.values(), key=lambda x: (x['stop_date'], x['code']))
 
-          with open('/tmp/gap_data_merged.csv', 'w', newline='', encoding='utf-8') as f:
+          with open('/tmp/gap_data_merged.csv', 'w', newline='', encoding='utf-8-sig') as f:
               writer = csv.DictWriter(f, fieldnames=fieldnames or list(sorted_rows[0].keys()))
               writer.writeheader()
               writer.writerows(sorted_rows)
