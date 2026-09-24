@@ -3,7 +3,7 @@ name: Deploy to Cloudflare
 on:
   workflow_dispatch:
   workflow_run:
-    workflows: ["Daily Stock Data Update"]
+    workflows: ["Daily Stock Data Update", "Daily Gap Analysis"]
     types: [completed]
   push:
     branches: [main]
