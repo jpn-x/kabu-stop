@@ -266,8 +266,15 @@ def process_day(
 
     nbd = next_business_day(stop_date)
 
-    # 翌営業日がまだ来ていない場合はスキップ
+    # 翌営業日がまだ来ていない場合はスキップ。
+    # 翌営業日が「今日」であっても、市場がまだ開いていない/引け後値が確定していない時間帯
+    # （GitHub Actionsのスケジュール遅延で早朝に実行されることがあるため）は、
+    # 「データが無い＝寄らず」と誤判定してしまう。安全のため東証の引け後（15:35 JST）
+    # まではスキップし、次回の実行時に再度この日を処理させる。
     if nbd > today:
+        return []
+    if nbd == today and datetime.now(JST).time() < datetime.strptime("15:35", "%H:%M").time():
+        print(f"  {stop_date_str}: 翌営業日({nbd})はまだ引け前 → 今回はスキップ（次回再処理）")
         return []
 
     # 新規処理対象を先にリストアップ
