@@ -15,7 +15,7 @@ gh repo create jpn-x/stop-gap-analysis --public --source=. --push
 1. リポジトリ → Settings → Pages
 2. Source: **Deploy from a branch**
 3. Branch: `main` / `/ (root)`
-4. Save → 数分後に `https://stop-gap-analysis.cadillac600.workers.dev/` で確認
+4. Save → 数分後に `https://stop-gap-analysis.jp-x.workers.dev/` で確認
 
 ---
 

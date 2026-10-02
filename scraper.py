@@ -4,7 +4,7 @@
 
 株探は GitHub Actions の IP をブロックするため、
 Cloudflare Worker のプロキシ経由で取得する:
-  https://stop-data.cadillac600.workers.dev/proxy?url=<kabutan URL>
+  https://stop-data.jp-x.workers.dev/proxy?url=<kabutan URL>
 
   mode=3_1 → ストップ高
   mode=3_2 → ストップ安
@@ -27,7 +27,7 @@ DATA_FILE = "data/stock_data.json"
 # Cloudflare Worker プロキシ（環境変数で上書き可）
 PROXY_BASE = os.environ.get(
     "KABUTAN_PROXY",
-    "https://stop-data.cadillac600.workers.dev/proxy",
+    "https://stop-data.jp-x.workers.dev/proxy",
 )
 
 BASE_HEADERS = {
