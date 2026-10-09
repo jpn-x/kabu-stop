@@ -14,6 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 import json
 import os
+import re
 import time
 import sys
 import urllib.parse
@@ -47,10 +48,34 @@ def make_session() -> requests.Session:
     return s
 
 
-def scrape_kabutan(session: requests.Session, mode: str) -> list[dict]:
+PAGE_DATE_RE = re.compile(r"(\d{4})年\s*(\d{1,2})月\s*(\d{1,2})日")
+
+
+def parse_page_date(soup: BeautifulSoup) -> str | None:
+    """株探ページが示すデータの取引日（YYYY-MM-DD）を返す。取れなければ None。
+
+    <div class="meigara_count"><ul><li>2026年10月09日</li><li>16:00現在</li>...
+    GitHub Actions の cron は数時間遅れることがあり、実行時刻(now)で日付ラベルを付けると
+    前日のデータが翌日の日付で保存されてしまう。そのためページ側の日付を正とする。
+    """
+    box = soup.find(class_="meigara_count")
+    if not box:
+        return None
+    m = PAGE_DATE_RE.search(box.get_text(" ", strip=True))
+    if not m:
+        return None
+    try:
+        return date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+    except ValueError:
+        return None
+
+
+def scrape_kabutan(session: requests.Session, mode: str) -> tuple[list[dict], str | None]:
     """
     mode='3_1' → ストップ高
     mode='3_2' → ストップ安
+
+    戻り値: (銘柄リスト, ページが示す取引日 YYYY-MM-DD または None)
 
     株探 warning テーブル (table.stock_table) の1行は
     find_all(['th','td']) で 13 セル:
@@ -67,10 +92,11 @@ def scrape_kabutan(session: requests.Session, mode: str) -> list[dict]:
     resp.encoding = "utf-8"
 
     soup = BeautifulSoup(resp.text, "html.parser")
+    page_date = parse_page_date(soup)
     table = soup.find("table", class_="stock_table")
     if not table:
         print("  警告: stock_table が見つかりません")
-        return []
+        return [], page_date
 
     stocks = []
     for row in table.find_all("tr"):
@@ -93,7 +119,7 @@ def scrape_kabutan(session: requests.Session, mode: str) -> list[dict]:
             "pbr":    cells[11].get_text(strip=True).replace("−", "").replace("－", ""),
         })
 
-    return stocks
+    return stocks, page_date
 
 
 def load_existing() -> dict:
@@ -125,41 +151,51 @@ def save(all_data: dict) -> None:
 
 def main():
     now = datetime.now(JST)
+    session = make_session()
 
-    # TARGET_DATE は日付ラベルの上書きのみ（株探はリアルタイム板のため過去取得は不可）
+    try:
+        print("ストップ高 取得中...")
+        stop_high, date_high = scrape_kabutan(session, "3_1")
+        print(f"  → {len(stop_high)} 銘柄 (ページの取引日: {date_high})")
+
+        time.sleep(2)
+
+        print("ストップ安 取得中...")
+        stop_low, date_low = scrape_kabutan(session, "3_2")
+        print(f"  → {len(stop_low)} 銘柄 (ページの取引日: {date_low})")
+
+    except requests.RequestException as e:
+        print(f"エラー: スクレイピング失敗 - {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 取引日（日付ラベル）はページが示す日付を正とする。実行時刻(now)は使わない。
+    # cron が数時間遅れて日付をまたぐと、前日データが翌日ラベルで保存されるのを防ぐため。
+    # 日付が特定できない/高安で食い違う場合は、誤ラベルで保存するより中止して次回に任せる。
+    if not date_high or date_high != date_low:
+        print(f"エラー: 取引日を特定できません（高={date_high} / 安={date_low}）。"
+              "誤った日付での保存を避けるため中止します", file=sys.stderr)
+        sys.exit(1)
+
+    date_str  = date_high
+    today     = date.fromisoformat(date_str)
+    month_key = date_str[:7]
+
+    # TARGET_DATE は「この日のデータのはず」という確認用（株探はリアルタイム板で過去日は取得不可）。
+    # ページの取引日と違えば、誤ラベルを避けるため保存しない。
     target = os.environ.get("TARGET_DATE", "").strip()
-    if target:
-        from datetime import date as date_type
-        today = date_type.fromisoformat(target)
-        date_str  = target
-        month_key = target[:7]
-    else:
-        today = now.date()
-        date_str  = now.strftime("%Y-%m-%d")
-        month_key = now.strftime("%Y-%m")
+    if target and target != date_str:
+        print(f"エラー: TARGET_DATE={target} だが、ページの取引日は {date_str}。保存しません",
+              file=sys.stderr)
+        sys.exit(1)
 
-    print(f"=== 株データ取得: {date_str} ===")
+    print(f"=== 株データ取得: {date_str} (実行 {now:%Y-%m-%d %H:%M} JST) ===")
 
     if today.weekday() >= 5 or jpholiday.is_holiday(today):
         print(f"  {date_str} は非営業日のためスキップ")
         sys.exit(0)
 
-    session = make_session()
-
-    try:
-        print("ストップ高 取得中...")
-        stop_high = scrape_kabutan(session, "3_1")
-        print(f"  → {len(stop_high)} 銘柄")
-
-        time.sleep(2)
-
-        print("ストップ安 取得中...")
-        stop_low = scrape_kabutan(session, "3_2")
-        print(f"  → {len(stop_low)} 銘柄")
-
-    except requests.RequestException as e:
-        print(f"エラー: スクレイピング失敗 - {e}", file=sys.stderr)
-        sys.exit(1)
+    if today == now.date() and now.hour * 60 + now.minute < 15 * 60 + 30:
+        print("  注意: 引け前の実行のため、取得データは途中経過です（引け後の実行で上書きされます）")
 
     today_record = {
         "date":       date_str,

@@ -10,6 +10,12 @@ on:
         required: false
         default: 'false'
 
+# 同じワークフローの重複実行を直列化。update.yml とはグループを分ける
+# （同一グループだと待機中の run が別ワークフローの run に置き換えられ、取りこぼす恐れがあるため）
+concurrency:
+  group: kabu-stop-gap
+  cancel-in-progress: false
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
@@ -44,17 +50,17 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # リモート最新を取得
-          git fetch origin
+          # アナライザーの出力を退避（下の git reset --hard で作業ツリーが上書きされるため）
+          cp data/gap_data.csv /tmp/gap_data_ours.csv
 
-          # ローカル新データ + リモート既存データを Python でマージ（コンフリクト回避）
-          python3 - <<'PYEOF'
+          # 今回データ + リモート既存データを Python でマージ（コンフリクト回避）するスクリプト
+          cat > /tmp/merge_gap_data.py <<'PYEOF'
           import csv, io, subprocess
 
           def row_key(row):
               return (row['stop_date'], row['code'], row['stop_type'])
 
-          with open('data/gap_data.csv', encoding='utf-8-sig') as f:
+          with open('/tmp/gap_data_ours.csv', encoding='utf-8-sig') as f:
               reader = csv.DictReader(f)
               fieldnames = reader.fieldnames
               ours = {row_key(row): row for row in reader}
@@ -78,11 +84,35 @@ jobs:
           print(f'マージ完了: {len(sorted_rows)} 日分')
           PYEOF
 
-          # リモートにリセットしてマージ済みデータを適用（コンフリクト不可能な状態にする）
-          git reset --hard origin/main
-          cp /tmp/gap_data_merged.csv data/gap_data.csv
+          # GitHub 側の一時エラー（remote: fatal error in commit_refs 等）や同時 push による拒否に備え、
+          # 「最新取得 → マージ → commit → push」を最大4回やり直す
+          for attempt in 1 2 3 4; do
+            if ! git fetch origin; then
+              echo "::warning::git fetch 失敗 (試行 $attempt/4)"
+              sleep $((attempt * 20))
+              continue
+            fi
 
-          git add data/gap_data.csv
-          git diff --staged --quiet && echo "変更なし → スキップ" && exit 0
-          git commit -m "gap data: $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M:%S')"
-          git push
+            python3 /tmp/merge_gap_data.py
+
+            # リモートにリセットしてマージ済みデータを適用（コンフリクト不可能な状態にする）
+            git reset --hard origin/main
+            cp /tmp/gap_data_merged.csv data/gap_data.csv
+
+            git add data/gap_data.csv
+            if git diff --staged --quiet; then
+              echo "変更なし → スキップ"
+              exit 0
+            fi
+            git commit -m "gap data: $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M:%S')"
+
+            if git push; then
+              echo "push 成功 (試行 $attempt/4)"
+              exit 0
+            fi
+            echo "::warning::git push 失敗 (試行 $attempt/4)。$((attempt * 20))秒後にやり直します"
+            sleep $((attempt * 20))
+          done
+
+          echo "::error::git push が4回とも失敗しました"
+          exit 1

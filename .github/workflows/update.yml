@@ -7,8 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       target_date:
-        description: '対象日 (YYYY-MM-DD) — 空欄で当日'
+        description: '取引日の確認用 (YYYY-MM-DD) — 株探ページの取引日と違えば保存しない。空欄で確認なし'
         required: false
+
+# 同じワークフローの重複実行を直列化（cron の遅延で2本が重なっても push が競合しない）
+concurrency:
+  group: kabu-stop-update
+  cancel-in-progress: false
 
 jobs:
   update:
@@ -49,13 +54,13 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # リモート最新を取得
-          git fetch origin
+          # スクレイパーの出力を退避（下の git reset --hard で作業ツリーが上書きされるため）
+          cp data/stock_data.json /tmp/stock_data_ours.json
 
-          # ローカル新データ + リモート既存データを Python でマージ（コンフリクト回避）
-          python3 - <<'PYEOF'
+          # 今回データ + リモート既存データを Python でマージ（コンフリクト回避）するスクリプト
+          cat > /tmp/merge_stock_data.py <<'PYEOF'
           import json, subprocess
-          with open('data/stock_data.json', encoding='utf-8') as f:
+          with open('/tmp/stock_data_ours.json', encoding='utf-8') as f:
               ours = json.load(f)
           try:
               remote = json.loads(subprocess.check_output(
@@ -74,11 +79,35 @@ jobs:
           print(f'マージ完了: {total} 日分')
           PYEOF
 
-          # リモートにリセットしてマージ済みデータを適用（コンフリクト不可能な状態にする）
-          git reset --hard origin/main
-          cp /tmp/stock_data_merged.json data/stock_data.json
+          # GitHub 側の一時エラー（remote: fatal error in commit_refs 等）や同時 push による拒否に備え、
+          # 「最新取得 → マージ → commit → push」を最大4回やり直す
+          for attempt in 1 2 3 4; do
+            if ! git fetch origin; then
+              echo "::warning::git fetch 失敗 (試行 $attempt/4)"
+              sleep $((attempt * 20))
+              continue
+            fi
 
-          git add data/stock_data.json
-          git diff --staged --quiet && echo "変更なし → スキップ" && exit 0
-          git commit -m "auto: update $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M:%S')"
-          git push
+            python3 /tmp/merge_stock_data.py
+
+            # リモートにリセットしてマージ済みデータを適用（コンフリクト不可能な状態にする）
+            git reset --hard origin/main
+            cp /tmp/stock_data_merged.json data/stock_data.json
+
+            git add data/stock_data.json
+            if git diff --staged --quiet; then
+              echo "変更なし → スキップ"
+              exit 0
+            fi
+            git commit -m "auto: update $(TZ=Asia/Tokyo date +'%Y-%m-%d %H:%M:%S')"
+
+            if git push; then
+              echo "push 成功 (試行 $attempt/4)"
+              exit 0
+            fi
+            echo "::warning::git push 失敗 (試行 $attempt/4)。$((attempt * 20))秒後にやり直します"
+            sleep $((attempt * 20))
+          done
+
+          echo "::error::git push が4回とも失敗しました"
+          exit 1
