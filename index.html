@@ -525,9 +525,11 @@ async function loadStopstock(existingKeys) {
     if (!resp.ok) return [];
     const data = await resp.json();
 
-    // code+stop_type ごとに最新の stop_date だけ残す
-    // （祝日連続などで同じ銘柄が複数日付で重複登録されるケースを除去）
-    const latest = {}; // "code_stopType" → {stopDate, nextDate, stock, stopType}
+    // CSV にまだ無い (stop_date, code, stop_type) を、日付ごとにすべて pending 行にする。
+    // 以前は「code+stop_type ごとに最新の stop_date だけ残す」重複除去をしていたが、
+    // 連日ストップ高になった銘柄の前日分(翌営業日待ちの行)が画面から消えるため廃止した(2026-10-13)。
+    // 祝日・休場日の重複登録は、下の isJPTradingDay でスキップしているので、重複除去は不要。
+    const found = []; // {stopDate, nextDate, stock, stopType}
 
     for (const days of Object.values(data)) {
       for (const dayData of days) {
@@ -538,16 +540,13 @@ async function loadStopstock(existingKeys) {
         for (const stopType of ["stop_high", "stop_low"]) {
           for (const stock of (dayData[stopType] || [])) {
             if (existingKeys.has(`${stopDate}_${stock.code}_${stopType}`)) continue;
-            const k = `${stock.code}_${stopType}`;
-            if (!latest[k] || stopDate > latest[k].stopDate) {
-              latest[k] = { stopDate, nextDate, stock, stopType };
-            }
+            found.push({ stopDate, nextDate, stock, stopType });
           }
         }
       }
     }
 
-    const pending = Object.values(latest).map(({ stopDate, nextDate, stock, stopType }) => ({
+    const pending = found.map(({ stopDate, nextDate, stock, stopType }) => ({
       stop_date:  stopDate,
       next_date:  nextDate,
       code:       stock.code,
